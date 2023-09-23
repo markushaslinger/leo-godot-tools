@@ -2,7 +2,7 @@
 
     <PropertyGroup>
         <PackageType>Dependency</PackageType>
-        <PackageVersion>1.1.0-preview1</PackageVersion>
+        <PackageVersion>1.1.0-preview2</PackageVersion>
         <PackageId>HTLLeonding.VirtualWorlds.LeoGodotTools</PackageId>
         <PackageReadmeFile>readme.md</PackageReadmeFile>
         <PackageProjectUrl>https://github.com/markushaslinger/leo-godot-tools</PackageProjectUrl>
