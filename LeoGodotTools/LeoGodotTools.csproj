@@ -2,14 +2,15 @@
 
     <PropertyGroup>
         <PackageType>Dependency</PackageType>
-        <PackageVersion>1.0.0</PackageVersion>
+        <PackageVersion>1.1.0-preview1</PackageVersion>
         <PackageId>HTLLeonding.VirtualWorlds.LeoGodotTools</PackageId>
         <PackageReadmeFile>readme.md</PackageReadmeFile>
+        <PackageProjectUrl>https://github.com/markushaslinger/leo-godot-tools</PackageProjectUrl>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <Title>HTL Leonding tools for Godot game engine projects</Title>
         <Authors>M. Haslinger</Authors>
         <Description>Contains several tools and extension methods useful when creating .NET projects with the Godot game engine.
-            Targets Godot 4.1 and .NET 6.0.
+            Targets Godot 4.2 and .NET 6.0.
             Can be used for projects at HTL Leonding.</Description>
         <PackageTags>godot;HTL-Leonding</PackageTags>
         
@@ -23,7 +24,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="GodotSharp" Version="4.1.1" />
+      <PackageReference Include="GodotSharp" Version="4.2.0-dev.5" />
     </ItemGroup>
 
 </Project>
