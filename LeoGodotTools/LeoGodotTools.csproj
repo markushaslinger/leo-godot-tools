@@ -2,11 +2,13 @@
 
     <PropertyGroup>
         <PackageType>Dependency</PackageType>
-        <PackageVersion>1.1.0-preview2</PackageVersion>
+        <PackageVersion>1.1.0-preview3</PackageVersion>
         <PackageId>HTLLeonding.VirtualWorlds.LeoGodotTools</PackageId>
         <PackageReadmeFile>readme.md</PackageReadmeFile>
         <PackageProjectUrl>https://github.com/markushaslinger/leo-godot-tools</PackageProjectUrl>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
         <Title>HTL Leonding tools for Godot game engine projects</Title>
         <Authors>M. Haslinger</Authors>
         <Description>Contains several tools and extension methods useful when creating .NET projects with the Godot game engine.

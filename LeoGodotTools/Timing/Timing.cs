@@ -19,12 +19,12 @@ public class Timing : Node
     /// <summary>
     ///     Used for advanced coroutine control.
     /// </summary>
-    public static Func<IEnumerator<double>, CoroutineHandle, IEnumerator<double>>? ReplacementFunction;
+    public static Func<IEnumerator<double>, CoroutineHandle, IEnumerator<double>> ReplacementFunction;
 
-    private static object? _tmpRef;
+    private static object _tmpRef;
 
-    private static readonly Timing[] activeInstances = new Timing[16];
-    private static Timing? _instance;
+    private static readonly Timing[] ActiveInstances = new Timing[16];
+    private static Timing _instance;
     private readonly HashSet<CoroutineHandle> _allWaiting = new HashSet<CoroutineHandle>();
 
     private readonly Dictionary<CoroutineHandle, ProcessIndex> _handleToIndex
@@ -46,7 +46,7 @@ public class Timing : Node
     private ulong _currentProcessFrame;
     private ushort _expansions = 1;
     private ushort _framesSinceProcess;
-    private byte _instanceId;
+    private byte _instanceID;
     private int _lastDeferredProcessProcessSlot;
     private double _lastDeferredProcessTime;
     private int _lastPhysicsProcessProcessSlot;
@@ -65,21 +65,21 @@ public class Timing : Node
     [Export]
     public int DeferredProcessCoroutines;
 
-    private bool[] _deferredProcessHeld = new bool[InitialBufferSizeSmall];
-    private bool[] _deferredProcessPaused = new bool[InitialBufferSizeSmall];
-    private IEnumerator<double>[] _deferredProcessProcesses = new IEnumerator<double>[InitialBufferSizeSmall];
+    private bool[] DeferredProcessHeld = new bool[InitialBufferSizeSmall];
+    private bool[] DeferredProcessPaused = new bool[InitialBufferSizeSmall];
+    private IEnumerator<double>[] DeferredProcessProcesses = new IEnumerator<double>[InitialBufferSizeSmall];
 
     /// <summary>
     ///     The amount of time in fractional seconds that elapsed between this frame and the last frame.
     /// </summary>
     [NonSerialized]
-    public double DeltaTimeField;
+    public double deltaTime;
 
     /// <summary>
     ///     The time in seconds that the current segment has been running.
     /// </summary>
     [NonSerialized]
-    public double LocalTime;
+    public double localTime;
 
     /// <summary>
     ///     The number of coroutines that are being run in the PhysicsProcess segment.
@@ -88,9 +88,9 @@ public class Timing : Node
     [Export]
     public int PhysicsProcessCoroutines;
 
-    private bool[] _physicsProcessHeld = new bool[InitialBufferSizeMedium];
-    private bool[] _physicsProcessPaused = new bool[InitialBufferSizeMedium];
-    private IEnumerator<double>[] _physicsProcessProcesses = new IEnumerator<double>[InitialBufferSizeMedium];
+    private bool[] PhysicsProcessHeld = new bool[InitialBufferSizeMedium];
+    private bool[] PhysicsProcessPaused = new bool[InitialBufferSizeMedium];
+    private IEnumerator<double>[] PhysicsProcessProcesses = new IEnumerator<double>[InitialBufferSizeMedium];
 
     /// <summary>
     ///     The number of coroutines that are being run in the Process segment.
@@ -99,21 +99,24 @@ public class Timing : Node
     [Export]
     public int ProcessCoroutines;
 
-    private bool[] _processHeld = new bool[InitialBufferSizeLarge];
+    private bool[] ProcessHeld = new bool[InitialBufferSizeLarge];
 
-    private bool[] _processPaused = new bool[InitialBufferSizeLarge];
+    private bool[] ProcessPaused = new bool[InitialBufferSizeLarge];
 
-    private IEnumerator<double>[] _processProcesses = new IEnumerator<double>[InitialBufferSizeLarge];
+    private IEnumerator<double>[] ProcessProcesses = new IEnumerator<double>[InitialBufferSizeLarge];
 
     public Timing()
     {
-        InitializeInstanceId();
+        InitializeInstanceID();
     }
 
     /// <summary>
     ///     The amount of time in fractional seconds that elapsed between this frame and the last frame.
     /// </summary>
-    public static double DeltaTime => Instance.DeltaTimeField;
+    public static double DeltaTime
+    {
+        get { return Instance.deltaTime; }
+    }
 
     /// <summary>
     ///     The main thread that (almost) everything in godot runs in.
@@ -123,7 +126,7 @@ public class Timing : Node
     /// <summary>
     ///     The handle of the current coroutine that is running.
     /// </summary>
-    public CoroutineHandle CurrentCoroutine { get; private set; }
+    public CoroutineHandle currentCoroutine { get; private set; }
 
     public static Timing Instance
     {
@@ -132,12 +135,12 @@ public class Timing : Node
             if (_instance == null)
             {
                 // Check if we were loaded via Autoload
-                _instance = ((SceneTree) Engine.GetMainLoop()).Root.GetNodeOrNull<Timing>(nameof(Timing));
+                _instance = ((SceneTree) Engine.GetMainLoop()).Root.GetNodeOrNull<Timing>(typeof(Timing).Name);
                 if (_instance == null)
                 {
                     // Instantiate to root at runtime
                     _instance = new Timing();
-                    _instance.Name = nameof(Timing);
+                    _instance.Name = typeof(Timing).Name;
                     _instance.CallDeferred(nameof(InitGlobalInstance));
                 }
             }
@@ -163,34 +166,36 @@ public class Timing : Node
         {
             GetType().GetProperty("ProcessPhysicsPriority",
                                   BindingFlags.Instance |
-                                  BindingFlags.Public)
-                     ?.SetValue(this, -1);
+                                  BindingFlags.Public).SetValue(this, -1);
         }
         catch (NullReferenceException) { }
 
-        MainThread ??= Thread.CurrentThread;
+        if (MainThread == null)
+        {
+            MainThread = Thread.CurrentThread;
+        }
     }
 
     public override void _ExitTree()
     {
-        if (_instanceId < activeInstances.Length)
+        if (_instanceID < ActiveInstances.Length)
         {
-            activeInstances[_instanceId] = null;
+            ActiveInstances[_instanceID] = null;
         }
     }
 
-    private void InitializeInstanceId()
+    private void InitializeInstanceID()
     {
-        if (activeInstances[_instanceId] == null)
+        if (ActiveInstances[_instanceID] == null)
         {
-            if (_instanceId == 0x00)
+            if (_instanceID == 0x00)
             {
-                _instanceId++;
+                _instanceID++;
             }
 
-            for (; _instanceId <= 0x10; _instanceId++)
+            for (; _instanceID <= 0x10; _instanceID++)
             {
-                if (_instanceId == 0x10)
+                if (_instanceID == 0x10)
                 {
                     QueueFree();
 
@@ -198,9 +203,9 @@ public class Timing : Node
                         OverflowException("You are only allowed 15 different contexts for MEC to run inside at one time.");
                 }
 
-                if (activeInstances[_instanceId] == null)
+                if (ActiveInstances[_instanceID] == null)
                 {
-                    activeInstances[_instanceId] = this;
+                    ActiveInstances[_instanceID] = this;
 
                     break;
                 }
@@ -212,39 +217,39 @@ public class Timing : Node
     {
         if (_nextProcessProcessSlot > 0)
         {
-            var coIndex = new ProcessIndex { Seg = Segment.Process };
-            if (UpdateTimeValues(coIndex.Seg))
+            var coindex = new ProcessIndex { seg = Segment.Process };
+            if (UpdateTimeValues(coindex.seg))
             {
                 _lastProcessProcessSlot = _nextProcessProcessSlot;
             }
 
-            for (coIndex.I = 0; coIndex.I < _lastProcessProcessSlot; coIndex.I++)
+            for (coindex.i = 0; coindex.i < _lastProcessProcessSlot; coindex.i++)
             {
                 try
                 {
-                    if (!_processPaused[coIndex.I] && !_processHeld[coIndex.I] && _processProcesses[coIndex.I] != null &&
-                        !(LocalTime < _processProcesses[coIndex.I].Current))
+                    if (!ProcessPaused[coindex.i] && !ProcessHeld[coindex.i] && ProcessProcesses[coindex.i] != null &&
+                        !(localTime < ProcessProcesses[coindex.i].Current))
                     {
-                        CurrentCoroutine = _indexToHandle[coIndex];
+                        currentCoroutine = _indexToHandle[coindex];
 
-                        if (!_processProcesses[coIndex.I].MoveNext())
+                        if (!ProcessProcesses[coindex.i].MoveNext())
                         {
-                            if (_indexToHandle.TryGetValue(coIndex, out var value))
+                            if (_indexToHandle.ContainsKey(coindex))
                             {
-                                KillCoroutinesOnInstance(value);
+                                KillCoroutinesOnInstance(_indexToHandle[coindex]);
                             }
                         }
-                        else if (_processProcesses[coIndex.I] != null &&
-                                 double.IsNaN(_processProcesses[coIndex.I].Current))
+                        else if (ProcessProcesses[coindex.i] != null &&
+                                 double.IsNaN(ProcessProcesses[coindex.i].Current))
                         {
                             if (ReplacementFunction != null)
                             {
-                                _processProcesses[coIndex.I]
-                                    = ReplacementFunction(_processProcesses[coIndex.I], _indexToHandle[coIndex]);
+                                ProcessProcesses[coindex.i]
+                                    = ReplacementFunction(ProcessProcesses[coindex.i], _indexToHandle[coindex]);
                                 ReplacementFunction = null;
                             }
 
-                            coIndex.I--;
+                            coindex.i--;
                         }
                     }
                 }
@@ -255,7 +260,7 @@ public class Timing : Node
             }
         }
 
-        CurrentCoroutine = default(CoroutineHandle);
+        currentCoroutine = default(CoroutineHandle);
 
         if (++_framesSinceProcess > FramesUntilMaintenance)
         {
@@ -271,40 +276,40 @@ public class Timing : Node
     {
         if (_nextPhysicsProcessProcessSlot > 0)
         {
-            var coindex = new ProcessIndex { Seg = Segment.PhysicsProcess };
-            if (UpdateTimeValues(coindex.Seg))
+            var coindex = new ProcessIndex { seg = Segment.PhysicsProcess };
+            if (UpdateTimeValues(coindex.seg))
             {
                 _lastPhysicsProcessProcessSlot = _nextPhysicsProcessProcessSlot;
             }
 
-            for (coindex.I = 0; coindex.I < _lastPhysicsProcessProcessSlot; coindex.I++)
+            for (coindex.i = 0; coindex.i < _lastPhysicsProcessProcessSlot; coindex.i++)
             {
                 try
                 {
-                    if (!_physicsProcessPaused[coindex.I] && !_physicsProcessHeld[coindex.I] &&
-                        _physicsProcessProcesses[coindex.I] != null &&
-                        !(LocalTime < _physicsProcessProcesses[coindex.I].Current))
+                    if (!PhysicsProcessPaused[coindex.i] && !PhysicsProcessHeld[coindex.i] &&
+                        PhysicsProcessProcesses[coindex.i] != null &&
+                        !(localTime < PhysicsProcessProcesses[coindex.i].Current))
                     {
-                        CurrentCoroutine = _indexToHandle[coindex];
+                        currentCoroutine = _indexToHandle[coindex];
 
-                        if (!_physicsProcessProcesses[coindex.I].MoveNext())
+                        if (!PhysicsProcessProcesses[coindex.i].MoveNext())
                         {
                             if (_indexToHandle.ContainsKey(coindex))
                             {
                                 KillCoroutinesOnInstance(_indexToHandle[coindex]);
                             }
                         }
-                        else if (_physicsProcessProcesses[coindex.I] != null &&
-                                 double.IsNaN(_physicsProcessProcesses[coindex.I].Current))
+                        else if (PhysicsProcessProcesses[coindex.i] != null &&
+                                 double.IsNaN(PhysicsProcessProcesses[coindex.i].Current))
                         {
                             if (ReplacementFunction != null)
                             {
-                                _physicsProcessProcesses[coindex.I]
-                                    = ReplacementFunction(_physicsProcessProcesses[coindex.I], _indexToHandle[coindex]);
+                                PhysicsProcessProcesses[coindex.i]
+                                    = ReplacementFunction(PhysicsProcessProcesses[coindex.i], _indexToHandle[coindex]);
                                 ReplacementFunction = null;
                             }
 
-                            coindex.I--;
+                            coindex.i--;
                         }
                     }
                 }
@@ -314,7 +319,7 @@ public class Timing : Node
                 }
             }
 
-            CurrentCoroutine = default;
+            currentCoroutine = default;
         }
     }
 
@@ -322,40 +327,40 @@ public class Timing : Node
     {
         if (_nextDeferredProcessProcessSlot > 0)
         {
-            var coindex = new ProcessIndex { Seg = Segment.DeferredProcess };
-            if (UpdateTimeValues(coindex.Seg))
+            var coindex = new ProcessIndex { seg = Segment.DeferredProcess };
+            if (UpdateTimeValues(coindex.seg))
             {
                 _lastDeferredProcessProcessSlot = _nextDeferredProcessProcessSlot;
             }
 
-            for (coindex.I = 0; coindex.I < _lastDeferredProcessProcessSlot; coindex.I++)
+            for (coindex.i = 0; coindex.i < _lastDeferredProcessProcessSlot; coindex.i++)
             {
                 try
                 {
-                    if (!_deferredProcessPaused[coindex.I] && !_deferredProcessHeld[coindex.I] &&
-                        _deferredProcessProcesses[coindex.I] != null &&
-                        !(LocalTime < _deferredProcessProcesses[coindex.I].Current))
+                    if (!DeferredProcessPaused[coindex.i] && !DeferredProcessHeld[coindex.i] &&
+                        DeferredProcessProcesses[coindex.i] != null &&
+                        !(localTime < DeferredProcessProcesses[coindex.i].Current))
                     {
-                        CurrentCoroutine = _indexToHandle[coindex];
+                        currentCoroutine = _indexToHandle[coindex];
 
-                        if (!_deferredProcessProcesses[coindex.I].MoveNext())
+                        if (!DeferredProcessProcesses[coindex.i].MoveNext())
                         {
                             if (_indexToHandle.ContainsKey(coindex))
                             {
                                 KillCoroutinesOnInstance(_indexToHandle[coindex]);
                             }
                         }
-                        else if (_deferredProcessProcesses[coindex.I] != null &&
-                                 double.IsNaN(_deferredProcessProcesses[coindex.I].Current))
+                        else if (DeferredProcessProcesses[coindex.i] != null &&
+                                 double.IsNaN(DeferredProcessProcesses[coindex.i].Current))
                         {
                             if (ReplacementFunction != null)
                             {
-                                _deferredProcessProcesses[coindex.I]
-                                    = ReplacementFunction(_deferredProcessProcesses[coindex.I], _indexToHandle[coindex]);
+                                DeferredProcessProcesses[coindex.i]
+                                    = ReplacementFunction(DeferredProcessProcesses[coindex.i], _indexToHandle[coindex]);
                                 ReplacementFunction = null;
                             }
 
-                            coindex.I--;
+                            coindex.i--;
                         }
                     }
                 }
@@ -365,7 +370,7 @@ public class Timing : Node
                 }
             }
 
-            CurrentCoroutine = default(CoroutineHandle);
+            currentCoroutine = default(CoroutineHandle);
         }
     }
 
@@ -377,7 +382,6 @@ public class Timing : Node
             if (waitTrigsEnum.Current.Value.Count == 0)
             {
                 _waitingTriggers.Remove(waitTrigsEnum.Current.Key);
-                waitTrigsEnum.Dispose();
                 waitTrigsEnum = _waitingTriggers.GetEnumerator();
 
                 continue;
@@ -387,23 +391,22 @@ public class Timing : Node
                 CoindexIsNull(_handleToIndex[waitTrigsEnum.Current.Key]))
             {
                 CloseWaitingProcess(waitTrigsEnum.Current.Key);
-                waitTrigsEnum.Dispose();
                 waitTrigsEnum = _waitingTriggers.GetEnumerator();
             }
         }
 
         ProcessIndex outer, inner;
-        outer.Seg = inner.Seg = Segment.Process;
+        outer.seg = inner.seg = Segment.Process;
 
-        for (outer.I = inner.I = 0; outer.I < _nextProcessProcessSlot; outer.I++)
+        for (outer.i = inner.i = 0; outer.i < _nextProcessProcessSlot; outer.i++)
         {
-            if (_processProcesses[outer.I] != null)
+            if (ProcessProcesses[outer.i] != null)
             {
-                if (outer.I != inner.I)
+                if (outer.i != inner.i)
                 {
-                    _processProcesses[inner.I] = _processProcesses[outer.I];
-                    _processPaused[inner.I] = _processPaused[outer.I];
-                    _processHeld[inner.I] = _processHeld[outer.I];
+                    ProcessProcesses[inner.i] = ProcessProcesses[outer.i];
+                    ProcessPaused[inner.i] = ProcessPaused[outer.i];
+                    ProcessHeld[inner.i] = ProcessHeld[outer.i];
 
                     if (_indexToHandle.ContainsKey(inner))
                     {
@@ -417,15 +420,15 @@ public class Timing : Node
                     _indexToHandle.Remove(outer);
                 }
 
-                inner.I++;
+                inner.i++;
             }
         }
 
-        for (outer.I = inner.I; outer.I < _nextProcessProcessSlot; outer.I++)
+        for (outer.i = inner.i; outer.i < _nextProcessProcessSlot; outer.i++)
         {
-            _processProcesses[outer.I] = null;
-            _processPaused[outer.I] = false;
-            _processHeld[outer.I] = false;
+            ProcessProcesses[outer.i] = null;
+            ProcessPaused[outer.i] = false;
+            ProcessHeld[outer.i] = false;
 
             if (_indexToHandle.ContainsKey(outer))
             {
@@ -436,19 +439,19 @@ public class Timing : Node
             }
         }
 
-        _lastProcessProcessSlot -= _nextProcessProcessSlot - inner.I;
-        ProcessCoroutines = _nextProcessProcessSlot = inner.I;
+        _lastProcessProcessSlot -= _nextProcessProcessSlot - inner.i;
+        ProcessCoroutines = _nextProcessProcessSlot = inner.i;
 
-        outer.Seg = inner.Seg = Segment.PhysicsProcess;
-        for (outer.I = inner.I = 0; outer.I < _nextPhysicsProcessProcessSlot; outer.I++)
+        outer.seg = inner.seg = Segment.PhysicsProcess;
+        for (outer.i = inner.i = 0; outer.i < _nextPhysicsProcessProcessSlot; outer.i++)
         {
-            if (_physicsProcessProcesses[outer.I] != null)
+            if (PhysicsProcessProcesses[outer.i] != null)
             {
-                if (outer.I != inner.I)
+                if (outer.i != inner.i)
                 {
-                    _physicsProcessProcesses[inner.I] = _physicsProcessProcesses[outer.I];
-                    _physicsProcessPaused[inner.I] = _physicsProcessPaused[outer.I];
-                    _physicsProcessHeld[inner.I] = _physicsProcessHeld[outer.I];
+                    PhysicsProcessProcesses[inner.i] = PhysicsProcessProcesses[outer.i];
+                    PhysicsProcessPaused[inner.i] = PhysicsProcessPaused[outer.i];
+                    PhysicsProcessHeld[inner.i] = PhysicsProcessHeld[outer.i];
 
                     if (_indexToHandle.ContainsKey(inner))
                     {
@@ -462,15 +465,15 @@ public class Timing : Node
                     _indexToHandle.Remove(outer);
                 }
 
-                inner.I++;
+                inner.i++;
             }
         }
 
-        for (outer.I = inner.I; outer.I < _nextPhysicsProcessProcessSlot; outer.I++)
+        for (outer.i = inner.i; outer.i < _nextPhysicsProcessProcessSlot; outer.i++)
         {
-            _physicsProcessProcesses[outer.I] = null;
-            _physicsProcessPaused[outer.I] = false;
-            _physicsProcessHeld[outer.I] = false;
+            PhysicsProcessProcesses[outer.i] = null;
+            PhysicsProcessPaused[outer.i] = false;
+            PhysicsProcessHeld[outer.i] = false;
 
             if (_indexToHandle.ContainsKey(outer))
             {
@@ -481,19 +484,19 @@ public class Timing : Node
             }
         }
 
-        _lastPhysicsProcessProcessSlot -= _nextPhysicsProcessProcessSlot - inner.I;
-        PhysicsProcessCoroutines = _nextPhysicsProcessProcessSlot = inner.I;
+        _lastPhysicsProcessProcessSlot -= _nextPhysicsProcessProcessSlot - inner.i;
+        PhysicsProcessCoroutines = _nextPhysicsProcessProcessSlot = inner.i;
 
-        outer.Seg = inner.Seg = Segment.DeferredProcess;
-        for (outer.I = inner.I = 0; outer.I < _nextDeferredProcessProcessSlot; outer.I++)
+        outer.seg = inner.seg = Segment.DeferredProcess;
+        for (outer.i = inner.i = 0; outer.i < _nextDeferredProcessProcessSlot; outer.i++)
         {
-            if (_deferredProcessProcesses[outer.I] != null)
+            if (DeferredProcessProcesses[outer.i] != null)
             {
-                if (outer.I != inner.I)
+                if (outer.i != inner.i)
                 {
-                    _deferredProcessProcesses[inner.I] = _deferredProcessProcesses[outer.I];
-                    _deferredProcessPaused[inner.I] = _deferredProcessPaused[outer.I];
-                    _deferredProcessHeld[inner.I] = _deferredProcessHeld[outer.I];
+                    DeferredProcessProcesses[inner.i] = DeferredProcessProcesses[outer.i];
+                    DeferredProcessPaused[inner.i] = DeferredProcessPaused[outer.i];
+                    DeferredProcessHeld[inner.i] = DeferredProcessHeld[outer.i];
 
                     if (_indexToHandle.ContainsKey(inner))
                     {
@@ -507,15 +510,15 @@ public class Timing : Node
                     _indexToHandle.Remove(outer);
                 }
 
-                inner.I++;
+                inner.i++;
             }
         }
 
-        for (outer.I = inner.I; outer.I < _nextDeferredProcessProcessSlot; outer.I++)
+        for (outer.i = inner.i; outer.i < _nextDeferredProcessProcessSlot; outer.i++)
         {
-            _deferredProcessProcesses[outer.I] = null;
-            _deferredProcessPaused[outer.I] = false;
-            _deferredProcessHeld[outer.I] = false;
+            DeferredProcessProcesses[outer.i] = null;
+            DeferredProcessPaused[outer.i] = false;
+            DeferredProcessHeld[outer.i] = false;
 
             if (_indexToHandle.ContainsKey(outer))
             {
@@ -526,8 +529,8 @@ public class Timing : Node
             }
         }
 
-        _lastDeferredProcessProcessSlot -= _nextDeferredProcessProcessSlot - inner.I;
-        DeferredProcessCoroutines = _nextDeferredProcessProcessSlot = inner.I;
+        _lastDeferredProcessProcessSlot -= _nextDeferredProcessProcessSlot - inner.i;
+        DeferredProcessCoroutines = _nextDeferredProcessProcessSlot = inner.i;
     }
 
     /// <summary>
@@ -535,11 +538,13 @@ public class Timing : Node
     /// </summary>
     /// <param name="coroutine">The new coroutine's handle.</param>
     /// <returns>The coroutine's handle, which can be used for Wait and Kill operations.</returns>
-    public static CoroutineHandle RunCoroutine(IEnumerator<double> coroutine) =>
-        coroutine == null
+    public static CoroutineHandle RunCoroutine(IEnumerator<double> coroutine)
+    {
+        return coroutine == null
             ? new CoroutineHandle()
-            : Instance.RunCoroutineInternal(coroutine, Segment.Process, null, new CoroutineHandle(Instance._instanceId),
+            : Instance.RunCoroutineInternal(coroutine, Segment.Process, null, new CoroutineHandle(Instance._instanceID),
                                             true);
+    }
 
     /// <summary>
     ///     Run a new coroutine in the Process segment.
@@ -547,11 +552,13 @@ public class Timing : Node
     /// <param name="coroutine">The new coroutine's handle.</param>
     /// <param name="tag">An optional tag to attach to the coroutine which can later be used for Kill operations.</param>
     /// <returns>The coroutine's handle, which can be used for Wait and Kill operations.</returns>
-    public static CoroutineHandle RunCoroutine(IEnumerator<double> coroutine, string tag) =>
-        coroutine == null
+    public static CoroutineHandle RunCoroutine(IEnumerator<double> coroutine, string tag)
+    {
+        return coroutine == null
             ? new CoroutineHandle()
-            : Instance.RunCoroutineInternal(coroutine, Segment.Process, tag, new CoroutineHandle(Instance._instanceId),
+            : Instance.RunCoroutineInternal(coroutine, Segment.Process, tag, new CoroutineHandle(Instance._instanceID),
                                             true);
+    }
 
     /// <summary>
     ///     Run a new coroutine.
@@ -559,10 +566,12 @@ public class Timing : Node
     /// <param name="coroutine">The new coroutine's handle.</param>
     /// <param name="segment">The segment that the coroutine should run in.</param>
     /// <returns>The coroutine's handle, which can be used for Wait and Kill operations.</returns>
-    public static CoroutineHandle RunCoroutine(IEnumerator<double> coroutine, Segment segment) =>
-        coroutine == null
+    public static CoroutineHandle RunCoroutine(IEnumerator<double> coroutine, Segment segment)
+    {
+        return coroutine == null
             ? new CoroutineHandle()
-            : Instance.RunCoroutineInternal(coroutine, segment, null, new CoroutineHandle(Instance._instanceId), true);
+            : Instance.RunCoroutineInternal(coroutine, segment, null, new CoroutineHandle(Instance._instanceID), true);
+    }
 
     /// <summary>
     ///     Run a new coroutine.
@@ -571,20 +580,24 @@ public class Timing : Node
     /// <param name="segment">The segment that the coroutine should run in.</param>
     /// <param name="tag">An optional tag to attach to the coroutine which can later be used for Kill operations.</param>
     /// <returns>The coroutine's handle, which can be used for Wait and Kill operations.</returns>
-    public static CoroutineHandle RunCoroutine(IEnumerator<double> coroutine, Segment segment, string tag) =>
-        coroutine == null
+    public static CoroutineHandle RunCoroutine(IEnumerator<double> coroutine, Segment segment, string tag)
+    {
+        return coroutine == null
             ? new CoroutineHandle()
-            : Instance.RunCoroutineInternal(coroutine, segment, tag, new CoroutineHandle(Instance._instanceId), true);
+            : Instance.RunCoroutineInternal(coroutine, segment, tag, new CoroutineHandle(Instance._instanceID), true);
+    }
 
     /// <summary>
     ///     Run a new coroutine on this Timing instance in the Process segment.
     /// </summary>
     /// <param name="coroutine">The new coroutine's handle.</param>
     /// <returns>The coroutine's handle, which can be used for Wait and Kill operations.</returns>
-    public CoroutineHandle RunCoroutineOnInstance(IEnumerator<double> coroutine) =>
-        coroutine == null
+    public CoroutineHandle RunCoroutineOnInstance(IEnumerator<double> coroutine)
+    {
+        return coroutine == null
             ? new CoroutineHandle()
-            : RunCoroutineInternal(coroutine, Segment.Process, null, new CoroutineHandle(_instanceId), true);
+            : RunCoroutineInternal(coroutine, Segment.Process, null, new CoroutineHandle(_instanceID), true);
+    }
 
     /// <summary>
     ///     Run a new coroutine on this Timing instance in the Process segment.
@@ -592,10 +605,12 @@ public class Timing : Node
     /// <param name="coroutine">The new coroutine's handle.</param>
     /// <param name="tag">An optional tag to attach to the coroutine which can later be used for Kill operations.</param>
     /// <returns>The coroutine's handle, which can be used for Wait and Kill operations.</returns>
-    public CoroutineHandle RunCoroutineOnInstance(IEnumerator<double> coroutine, string tag) =>
-        coroutine == null
+    public CoroutineHandle RunCoroutineOnInstance(IEnumerator<double> coroutine, string tag)
+    {
+        return coroutine == null
             ? new CoroutineHandle()
-            : RunCoroutineInternal(coroutine, Segment.Process, tag, new CoroutineHandle(_instanceId), true);
+            : RunCoroutineInternal(coroutine, Segment.Process, tag, new CoroutineHandle(_instanceID), true);
+    }
 
     /// <summary>
     ///     Run a new coroutine on this Timing instance.
@@ -603,10 +618,12 @@ public class Timing : Node
     /// <param name="coroutine">The new coroutine's handle.</param>
     /// <param name="segment">The segment that the coroutine should run in.</param>
     /// <returns>The coroutine's handle, which can be used for Wait and Kill operations.</returns>
-    public CoroutineHandle RunCoroutineOnInstance(IEnumerator<double> coroutine, Segment segment) =>
-        coroutine == null
+    public CoroutineHandle RunCoroutineOnInstance(IEnumerator<double> coroutine, Segment segment)
+    {
+        return coroutine == null
             ? new CoroutineHandle()
-            : RunCoroutineInternal(coroutine, segment, null, new CoroutineHandle(_instanceId), true);
+            : RunCoroutineInternal(coroutine, segment, null, new CoroutineHandle(_instanceID), true);
+    }
 
     /// <summary>
     ///     Run a new coroutine on this Timing instance.
@@ -615,15 +632,17 @@ public class Timing : Node
     /// <param name="segment">The segment that the coroutine should run in.</param>
     /// <param name="tag">An optional tag to attach to the coroutine which can later be used for Kill operations.</param>
     /// <returns>The coroutine's handle, which can be used for Wait and Kill operations.</returns>
-    public CoroutineHandle RunCoroutineOnInstance(IEnumerator<double> coroutine, Segment segment, string tag) =>
-        coroutine == null
+    public CoroutineHandle RunCoroutineOnInstance(IEnumerator<double> coroutine, Segment segment, string tag)
+    {
+        return coroutine == null
             ? new CoroutineHandle()
-            : RunCoroutineInternal(coroutine, segment, tag, new CoroutineHandle(_instanceId), true);
+            : RunCoroutineInternal(coroutine, segment, tag, new CoroutineHandle(_instanceID), true);
+    }
 
     private CoroutineHandle RunCoroutineInternal(IEnumerator<double> coroutine, Segment segment, string tag,
                                                  CoroutineHandle handle, bool prewarm)
     {
-        var slot = new ProcessIndex { Seg = segment };
+        var slot = new ProcessIndex { seg = segment };
 
         if (_handleToIndex.ContainsKey(handle))
         {
@@ -631,41 +650,41 @@ public class Timing : Node
             _handleToIndex.Remove(handle);
         }
 
-        var currentLocalTime = LocalTime;
-        var currentDeltaTime = DeltaTimeField;
-        var cachedHandle = CurrentCoroutine;
-        CurrentCoroutine = handle;
+        var currentLocalTime = localTime;
+        var currentDeltaTime = deltaTime;
+        var cachedHandle = currentCoroutine;
+        currentCoroutine = handle;
 
         switch (segment)
         {
             case Segment.Process:
 
-                if (_nextProcessProcessSlot >= _processProcesses.Length)
+                if (_nextProcessProcessSlot >= ProcessProcesses.Length)
                 {
-                    var oldProcArray = _processProcesses;
-                    var oldPausedArray = _processPaused;
-                    var oldHeldArray = _processHeld;
+                    var oldProcArray = ProcessProcesses;
+                    var oldPausedArray = ProcessPaused;
+                    var oldHeldArray = ProcessHeld;
 
-                    _processProcesses
-                        = new IEnumerator<double>[_processProcesses.Length + ProcessArrayChunkSize * _expansions++];
-                    _processPaused = new bool[_processProcesses.Length];
-                    _processHeld = new bool[_processProcesses.Length];
+                    ProcessProcesses
+                        = new IEnumerator<double>[ProcessProcesses.Length + ProcessArrayChunkSize * _expansions++];
+                    ProcessPaused = new bool[ProcessProcesses.Length];
+                    ProcessHeld = new bool[ProcessProcesses.Length];
 
                     for (var i = 0; i < oldProcArray.Length; i++)
                     {
-                        _processProcesses[i] = oldProcArray[i];
-                        _processPaused[i] = oldPausedArray[i];
-                        _processHeld[i] = oldHeldArray[i];
+                        ProcessProcesses[i] = oldProcArray[i];
+                        ProcessPaused[i] = oldPausedArray[i];
+                        ProcessHeld[i] = oldHeldArray[i];
                     }
                 }
 
-                if (UpdateTimeValues(slot.Seg))
+                if (UpdateTimeValues(slot.seg))
                 {
                     _lastProcessProcessSlot = _nextProcessProcessSlot;
                 }
 
-                slot.I = _nextProcessProcessSlot++;
-                _processProcesses[slot.I] = coroutine;
+                slot.i = _nextProcessProcessSlot++;
+                ProcessProcesses[slot.i] = coroutine;
 
                 if (null != tag)
                 {
@@ -677,7 +696,7 @@ public class Timing : Node
 
                 while (prewarm)
                 {
-                    if (!_processProcesses[slot.I].MoveNext())
+                    if (!ProcessProcesses[slot.i].MoveNext())
                     {
                         if (_indexToHandle.ContainsKey(slot))
                         {
@@ -686,16 +705,16 @@ public class Timing : Node
 
                         prewarm = false;
                     }
-                    else if (_processProcesses[slot.I] != null && double.IsNaN(_processProcesses[slot.I].Current))
+                    else if (ProcessProcesses[slot.i] != null && double.IsNaN(ProcessProcesses[slot.i].Current))
                     {
                         if (ReplacementFunction != null)
                         {
-                            _processProcesses[slot.I]
-                                = ReplacementFunction(_processProcesses[slot.I], _indexToHandle[slot]);
+                            ProcessProcesses[slot.i]
+                                = ReplacementFunction(ProcessProcesses[slot.i], _indexToHandle[slot]);
                             ReplacementFunction = null;
                         }
 
-                        prewarm = !_processPaused[slot.I] && !_processHeld[slot.I];
+                        prewarm = !ProcessPaused[slot.i] && !ProcessHeld[slot.i];
                     }
                     else
                     {
@@ -707,33 +726,33 @@ public class Timing : Node
 
             case Segment.PhysicsProcess:
 
-                if (_nextPhysicsProcessProcessSlot >= _physicsProcessProcesses.Length)
+                if (_nextPhysicsProcessProcessSlot >= PhysicsProcessProcesses.Length)
                 {
-                    var oldProcArray = _physicsProcessProcesses;
-                    var oldPausedArray = _physicsProcessPaused;
-                    var oldHeldArray = _physicsProcessHeld;
+                    var oldProcArray = PhysicsProcessProcesses;
+                    var oldPausedArray = PhysicsProcessPaused;
+                    var oldHeldArray = PhysicsProcessHeld;
 
-                    _physicsProcessProcesses
-                        = new IEnumerator<double>[_physicsProcessProcesses.Length +
+                    PhysicsProcessProcesses
+                        = new IEnumerator<double>[PhysicsProcessProcesses.Length +
                                                   ProcessArrayChunkSize * _expansions++];
-                    _physicsProcessPaused = new bool[_physicsProcessProcesses.Length];
-                    _physicsProcessHeld = new bool[_physicsProcessProcesses.Length];
+                    PhysicsProcessPaused = new bool[PhysicsProcessProcesses.Length];
+                    PhysicsProcessHeld = new bool[PhysicsProcessProcesses.Length];
 
                     for (var i = 0; i < oldProcArray.Length; i++)
                     {
-                        _physicsProcessProcesses[i] = oldProcArray[i];
-                        _physicsProcessPaused[i] = oldPausedArray[i];
-                        _physicsProcessHeld[i] = oldHeldArray[i];
+                        PhysicsProcessProcesses[i] = oldProcArray[i];
+                        PhysicsProcessPaused[i] = oldPausedArray[i];
+                        PhysicsProcessHeld[i] = oldHeldArray[i];
                     }
                 }
 
-                if (UpdateTimeValues(slot.Seg))
+                if (UpdateTimeValues(slot.seg))
                 {
                     _lastPhysicsProcessProcessSlot = _nextPhysicsProcessProcessSlot;
                 }
 
-                slot.I = _nextPhysicsProcessProcessSlot++;
-                _physicsProcessProcesses[slot.I] = coroutine;
+                slot.i = _nextPhysicsProcessProcessSlot++;
+                PhysicsProcessProcesses[slot.i] = coroutine;
 
                 if (null != tag)
                 {
@@ -745,7 +764,7 @@ public class Timing : Node
 
                 while (prewarm)
                 {
-                    if (!_physicsProcessProcesses[slot.I].MoveNext())
+                    if (!PhysicsProcessProcesses[slot.i].MoveNext())
                     {
                         if (_indexToHandle.ContainsKey(slot))
                         {
@@ -754,17 +773,17 @@ public class Timing : Node
 
                         prewarm = false;
                     }
-                    else if (_physicsProcessProcesses[slot.I] != null &&
-                             double.IsNaN(_physicsProcessProcesses[slot.I].Current))
+                    else if (PhysicsProcessProcesses[slot.i] != null &&
+                             double.IsNaN(PhysicsProcessProcesses[slot.i].Current))
                     {
                         if (ReplacementFunction != null)
                         {
-                            _physicsProcessProcesses[slot.I]
-                                = ReplacementFunction(_physicsProcessProcesses[slot.I], _indexToHandle[slot]);
+                            PhysicsProcessProcesses[slot.i]
+                                = ReplacementFunction(PhysicsProcessProcesses[slot.i], _indexToHandle[slot]);
                             ReplacementFunction = null;
                         }
 
-                        prewarm = !_physicsProcessPaused[slot.I] && !_physicsProcessHeld[slot.I];
+                        prewarm = !PhysicsProcessPaused[slot.i] && !PhysicsProcessHeld[slot.i];
                     }
                     else
                     {
@@ -776,33 +795,33 @@ public class Timing : Node
 
             case Segment.DeferredProcess:
 
-                if (_nextDeferredProcessProcessSlot >= _deferredProcessProcesses.Length)
+                if (_nextDeferredProcessProcessSlot >= DeferredProcessProcesses.Length)
                 {
-                    var oldProcArray = _deferredProcessProcesses;
-                    var oldPausedArray = _deferredProcessPaused;
-                    var oldHeldArray = _deferredProcessHeld;
+                    var oldProcArray = DeferredProcessProcesses;
+                    var oldPausedArray = DeferredProcessPaused;
+                    var oldHeldArray = DeferredProcessHeld;
 
-                    _deferredProcessProcesses
-                        = new IEnumerator<double>[_deferredProcessProcesses.Length +
+                    DeferredProcessProcesses
+                        = new IEnumerator<double>[DeferredProcessProcesses.Length +
                                                   ProcessArrayChunkSize * _expansions++];
-                    _deferredProcessPaused = new bool[_deferredProcessProcesses.Length];
-                    _deferredProcessHeld = new bool[_deferredProcessProcesses.Length];
+                    DeferredProcessPaused = new bool[DeferredProcessProcesses.Length];
+                    DeferredProcessHeld = new bool[DeferredProcessProcesses.Length];
 
                     for (var i = 0; i < oldProcArray.Length; i++)
                     {
-                        _deferredProcessProcesses[i] = oldProcArray[i];
-                        _deferredProcessPaused[i] = oldPausedArray[i];
-                        _deferredProcessHeld[i] = oldHeldArray[i];
+                        DeferredProcessProcesses[i] = oldProcArray[i];
+                        DeferredProcessPaused[i] = oldPausedArray[i];
+                        DeferredProcessHeld[i] = oldHeldArray[i];
                     }
                 }
 
-                if (UpdateTimeValues(slot.Seg))
+                if (UpdateTimeValues(slot.seg))
                 {
                     _lastDeferredProcessProcessSlot = _nextDeferredProcessProcessSlot;
                 }
 
-                slot.I = _nextDeferredProcessProcessSlot++;
-                _deferredProcessProcesses[slot.I] = coroutine;
+                slot.i = _nextDeferredProcessProcessSlot++;
+                DeferredProcessProcesses[slot.i] = coroutine;
 
                 if (tag != null)
                 {
@@ -814,7 +833,7 @@ public class Timing : Node
 
                 while (prewarm)
                 {
-                    if (!_deferredProcessProcesses[slot.I].MoveNext())
+                    if (!DeferredProcessProcesses[slot.i].MoveNext())
                     {
                         if (_indexToHandle.ContainsKey(slot))
                         {
@@ -823,17 +842,17 @@ public class Timing : Node
 
                         prewarm = false;
                     }
-                    else if (_deferredProcessProcesses[slot.I] != null &&
-                             double.IsNaN(_deferredProcessProcesses[slot.I].Current))
+                    else if (DeferredProcessProcesses[slot.i] != null &&
+                             double.IsNaN(DeferredProcessProcesses[slot.i].Current))
                     {
                         if (ReplacementFunction != null)
                         {
-                            _deferredProcessProcesses[slot.I]
-                                = ReplacementFunction(_deferredProcessProcesses[slot.I], _indexToHandle[slot]);
+                            DeferredProcessProcesses[slot.i]
+                                = ReplacementFunction(DeferredProcessProcesses[slot.i], _indexToHandle[slot]);
                             ReplacementFunction = null;
                         }
 
-                        prewarm = !_deferredProcessPaused[slot.I] && !_deferredProcessHeld[slot.I];
+                        prewarm = !DeferredProcessPaused[slot.i] && !DeferredProcessHeld[slot.i];
                     }
                     else
                     {
@@ -849,9 +868,9 @@ public class Timing : Node
                 break;
         }
 
-        LocalTime = currentLocalTime;
-        DeltaTimeField = currentDeltaTime;
-        CurrentCoroutine = cachedHandle;
+        localTime = currentLocalTime;
+        deltaTime = currentDeltaTime;
+        currentCoroutine = cachedHandle;
 
         return handle;
     }
@@ -863,7 +882,10 @@ public class Timing : Node
     ///     function to complete the task before ending the current one.
     /// </summary>
     /// <returns>The number of coroutines that were killed.</returns>
-    public static int KillCoroutines() => _instance == null ? 0 : _instance.KillCoroutinesOnInstance();
+    public static int KillCoroutines()
+    {
+        return _instance == null ? 0 : _instance.KillCoroutinesOnInstance();
+    }
 
     /// <summary>
     ///     This will kill all coroutines running on the current MEC instance and reset the context.
@@ -876,21 +898,21 @@ public class Timing : Node
     {
         var retVal = _nextProcessProcessSlot + _nextDeferredProcessProcessSlot + _nextPhysicsProcessProcessSlot;
 
-        _processProcesses = new IEnumerator<double>[InitialBufferSizeLarge];
-        _processPaused = new bool[InitialBufferSizeLarge];
-        _processHeld = new bool[InitialBufferSizeLarge];
+        ProcessProcesses = new IEnumerator<double>[InitialBufferSizeLarge];
+        ProcessPaused = new bool[InitialBufferSizeLarge];
+        ProcessHeld = new bool[InitialBufferSizeLarge];
         ProcessCoroutines = 0;
         _nextProcessProcessSlot = 0;
 
-        _deferredProcessProcesses = new IEnumerator<double>[InitialBufferSizeSmall];
-        _deferredProcessPaused = new bool[InitialBufferSizeSmall];
-        _deferredProcessHeld = new bool[InitialBufferSizeSmall];
+        DeferredProcessProcesses = new IEnumerator<double>[InitialBufferSizeSmall];
+        DeferredProcessPaused = new bool[InitialBufferSizeSmall];
+        DeferredProcessHeld = new bool[InitialBufferSizeSmall];
         DeferredProcessCoroutines = 0;
         _nextDeferredProcessProcessSlot = 0;
 
-        _physicsProcessProcesses = new IEnumerator<double>[InitialBufferSizeMedium];
-        _physicsProcessPaused = new bool[InitialBufferSizeMedium];
-        _physicsProcessHeld = new bool[InitialBufferSizeMedium];
+        PhysicsProcessProcesses = new IEnumerator<double>[InitialBufferSizeMedium];
+        PhysicsProcessPaused = new bool[InitialBufferSizeMedium];
+        PhysicsProcessHeld = new bool[InitialBufferSizeMedium];
         PhysicsProcessCoroutines = 0;
         _nextPhysicsProcessProcessSlot = 0;
 
@@ -909,8 +931,10 @@ public class Timing : Node
     /// </summary>
     /// <param name="handle">The handle of the coroutine to kill.</param>
     /// <returns>The number of coroutines that were found and killed (0 or 1).</returns>
-    public static int KillCoroutines(CoroutineHandle handle) =>
-        activeInstances[handle.Key] != null ? GetInstance(handle.Key).KillCoroutinesOnInstance(handle) : 0;
+    public static int KillCoroutines(CoroutineHandle handle)
+    {
+        return ActiveInstances[handle.Key] != null ? GetInstance(handle.Key).KillCoroutinesOnInstance(handle) : 0;
+    }
 
     /// <summary>
     ///     Kills the instance of the coroutine handle on this Timing instance if it exists.
@@ -940,7 +964,10 @@ public class Timing : Node
     /// </summary>
     /// <param name="tag">All coroutines with this tag will be killed.</param>
     /// <returns>The number of coroutines that were found and killed.</returns>
-    public static int KillCoroutines(string tag) => _instance == null ? 0 : _instance.KillCoroutinesOnInstance(tag);
+    public static int KillCoroutines(string tag)
+    {
+        return _instance == null ? 0 : _instance.KillCoroutinesOnInstance(tag);
+    }
 
     /// <summary>
     ///     Kills all coroutines that have the given tag.
@@ -958,7 +985,7 @@ public class Timing : Node
 
         while (_taggedProcesses.ContainsKey(tag))
         {
-            using var matchEnum = _taggedProcesses[tag].GetEnumerator();
+            var matchEnum = _taggedProcesses[tag].GetEnumerator();
             matchEnum.MoveNext();
 
             if (Nullify(_handleToIndex[matchEnum.Current]))
@@ -987,7 +1014,10 @@ public class Timing : Node
     ///     This will pause all coroutines running on the current MEC instance until ResumeCoroutines is called.
     /// </summary>
     /// <returns>The number of coroutines that were paused.</returns>
-    public static int PauseCoroutines() => _instance == null ? 0 : _instance.PauseCoroutinesOnInstance();
+    public static int PauseCoroutines()
+    {
+        return _instance == null ? 0 : _instance.PauseCoroutinesOnInstance();
+    }
 
     /// <summary>
     ///     This will pause all coroutines running on this MEC instance until ResumeCoroutinesOnInstance is called.
@@ -999,30 +1029,30 @@ public class Timing : Node
         int i;
         for (i = 0; i < _nextProcessProcessSlot; i++)
         {
-            if (!_processPaused[i] && _processProcesses[i] != null)
+            if (!ProcessPaused[i] && ProcessProcesses[i] != null)
             {
                 count++;
-                _processPaused[i] = true;
+                ProcessPaused[i] = true;
 
-                if (_processProcesses[i].Current > GetSegmentTime(Segment.Process))
+                if (ProcessProcesses[i].Current > GetSegmentTime(Segment.Process))
                 {
-                    _processProcesses[i] = _InjectDelay(_processProcesses[i],
-                                                       _processProcesses[i].Current - GetSegmentTime(Segment.Process));
+                    ProcessProcesses[i] = _InjectDelay(ProcessProcesses[i],
+                                                       ProcessProcesses[i].Current - GetSegmentTime(Segment.Process));
                 }
             }
         }
 
         for (i = 0; i < _nextDeferredProcessProcessSlot; i++)
         {
-            if (!_deferredProcessPaused[i] && _deferredProcessProcesses[i] != null)
+            if (!DeferredProcessPaused[i] && DeferredProcessProcesses[i] != null)
             {
                 count++;
-                _deferredProcessPaused[i] = true;
+                DeferredProcessPaused[i] = true;
 
-                if (_deferredProcessProcesses[i].Current > GetSegmentTime(Segment.DeferredProcess))
+                if (DeferredProcessProcesses[i].Current > GetSegmentTime(Segment.DeferredProcess))
                 {
-                    _deferredProcessProcesses[i] = _InjectDelay(_deferredProcessProcesses[i],
-                                                               _deferredProcessProcesses[i].Current -
+                    DeferredProcessProcesses[i] = _InjectDelay(DeferredProcessProcesses[i],
+                                                               DeferredProcessProcesses[i].Current -
                                                                GetSegmentTime(Segment.DeferredProcess));
                 }
             }
@@ -1030,15 +1060,15 @@ public class Timing : Node
 
         for (i = 0; i < _nextPhysicsProcessProcessSlot; i++)
         {
-            if (!_physicsProcessPaused[i] && _physicsProcessProcesses[i] != null)
+            if (!PhysicsProcessPaused[i] && PhysicsProcessProcesses[i] != null)
             {
                 count++;
-                _physicsProcessPaused[i] = true;
+                PhysicsProcessPaused[i] = true;
 
-                if (_physicsProcessProcesses[i].Current > GetSegmentTime(Segment.PhysicsProcess))
+                if (PhysicsProcessProcesses[i].Current > GetSegmentTime(Segment.PhysicsProcess))
                 {
-                    _physicsProcessProcesses[i] = _InjectDelay(_physicsProcessProcesses[i],
-                                                              _physicsProcessProcesses[i].Current -
+                    PhysicsProcessProcesses[i] = _InjectDelay(PhysicsProcessProcesses[i],
+                                                              PhysicsProcessProcesses[i].Current -
                                                               GetSegmentTime(Segment.PhysicsProcess));
                 }
             }
@@ -1052,26 +1082,33 @@ public class Timing : Node
     /// </summary>
     /// <param name="handle">The handle of the coroutine to pause.</param>
     /// <returns>The number of coroutines that were paused (0 or 1).</returns>
-    public static int PauseCoroutines(CoroutineHandle handle) =>
-        activeInstances[handle.Key] != null ? GetInstance(handle.Key).PauseCoroutinesOnInstance(handle) : 0;
+    public static int PauseCoroutines(CoroutineHandle handle)
+    {
+        return ActiveInstances[handle.Key] != null ? GetInstance(handle.Key).PauseCoroutinesOnInstance(handle) : 0;
+    }
 
     /// <summary>
     ///     This will pause any matching coroutines running on this MEC instance until ResumeCoroutinesOnInstance is called.
     /// </summary>
     /// <param name="handle">The handle of the coroutine to pause.</param>
     /// <returns>The number of coroutines that were paused (0 or 1).</returns>
-    public int PauseCoroutinesOnInstance(CoroutineHandle handle) =>
-        _handleToIndex.ContainsKey(handle) && !CoindexIsNull(_handleToIndex[handle]) &&
-        !SetPause(_handleToIndex[handle], true)
+    public int PauseCoroutinesOnInstance(CoroutineHandle handle)
+    {
+        return _handleToIndex.ContainsKey(handle) && !CoindexIsNull(_handleToIndex[handle]) &&
+               !SetPause(_handleToIndex[handle], true)
             ? 1
             : 0;
+    }
 
     /// <summary>
     ///     This will pause any matching coroutines running on the current MEC instance until ResumeCoroutines is called.
     /// </summary>
     /// <param name="tag">Any coroutines with a matching tag will be paused.</param>
     /// <returns>The number of coroutines that were paused.</returns>
-    public static int PauseCoroutines(string tag) => _instance == null ? 0 : _instance.PauseCoroutinesOnInstance(tag);
+    public static int PauseCoroutines(string tag)
+    {
+        return _instance == null ? 0 : _instance.PauseCoroutinesOnInstance(tag);
+    }
 
     /// <summary>
     ///     This will pause any matching coroutines running on this MEC instance until ResumeCoroutinesOnInstance is called.
@@ -1086,7 +1123,7 @@ public class Timing : Node
         }
 
         var count = 0;
-        using var matchesEnum = _taggedProcesses[tag].GetEnumerator();
+        var matchesEnum = _taggedProcesses[tag].GetEnumerator();
 
         while (matchesEnum.MoveNext())
         {
@@ -1105,7 +1142,10 @@ public class Timing : Node
     ///     no effect.
     /// </summary>
     /// <returns>The number of coroutines that were resumed.</returns>
-    public static int ResumeCoroutines() => _instance == null ? 0 : _instance.ResumeCoroutinesOnInstance();
+    public static int ResumeCoroutines()
+    {
+        return _instance == null ? 0 : _instance.ResumeCoroutinesOnInstance();
+    }
 
     /// <summary>
     ///     This resumes all coroutines on this MEC instance if they are currently paused, otherwise it has no effect.
@@ -1115,31 +1155,31 @@ public class Timing : Node
     {
         var count = 0;
         ProcessIndex coindex;
-        for (coindex.I = 0, coindex.Seg = Segment.Process; coindex.I < _nextProcessProcessSlot; coindex.I++)
+        for (coindex.i = 0, coindex.seg = Segment.Process; coindex.i < _nextProcessProcessSlot; coindex.i++)
         {
-            if (_processPaused[coindex.I] && _processProcesses[coindex.I] != null)
+            if (ProcessPaused[coindex.i] && ProcessProcesses[coindex.i] != null)
             {
-                _processPaused[coindex.I] = false;
+                ProcessPaused[coindex.i] = false;
                 count++;
             }
         }
 
-        for (coindex.I = 0, coindex.Seg = Segment.DeferredProcess; coindex.I < _nextDeferredProcessProcessSlot;
-             coindex.I++)
+        for (coindex.i = 0, coindex.seg = Segment.DeferredProcess; coindex.i < _nextDeferredProcessProcessSlot;
+             coindex.i++)
         {
-            if (_deferredProcessPaused[coindex.I] && _deferredProcessProcesses[coindex.I] != null)
+            if (DeferredProcessPaused[coindex.i] && DeferredProcessProcesses[coindex.i] != null)
             {
-                _deferredProcessPaused[coindex.I] = false;
+                DeferredProcessPaused[coindex.i] = false;
                 count++;
             }
         }
 
-        for (coindex.I = 0, coindex.Seg = Segment.PhysicsProcess; coindex.I < _nextPhysicsProcessProcessSlot;
-             coindex.I++)
+        for (coindex.i = 0, coindex.seg = Segment.PhysicsProcess; coindex.i < _nextPhysicsProcessProcessSlot;
+             coindex.i++)
         {
-            if (_physicsProcessPaused[coindex.I] && _physicsProcessProcesses[coindex.I] != null)
+            if (PhysicsProcessPaused[coindex.i] && PhysicsProcessProcesses[coindex.i] != null)
             {
-                _physicsProcessPaused[coindex.I] = false;
+                PhysicsProcessPaused[coindex.i] = false;
                 count++;
             }
         }
@@ -1152,19 +1192,23 @@ public class Timing : Node
     /// </summary>
     /// <param name="handle">The handle of the coroutine to resume.</param>
     /// <returns>The number of coroutines that were resumed (0 or 1).</returns>
-    public static int ResumeCoroutines(CoroutineHandle handle) =>
-        activeInstances[handle.Key] != null ? GetInstance(handle.Key).ResumeCoroutinesOnInstance(handle) : 0;
+    public static int ResumeCoroutines(CoroutineHandle handle)
+    {
+        return ActiveInstances[handle.Key] != null ? GetInstance(handle.Key).ResumeCoroutinesOnInstance(handle) : 0;
+    }
 
     /// <summary>
     ///     This will resume any matching coroutines running on this MEC instance.
     /// </summary>
     /// <param name="handle">The handle of the coroutine to resume.</param>
     /// <returns>The number of coroutines that were resumed (0 or 1).</returns>
-    public int ResumeCoroutinesOnInstance(CoroutineHandle handle) =>
-        _handleToIndex.ContainsKey(handle) &&
-        !CoindexIsNull(_handleToIndex[handle]) && SetPause(_handleToIndex[handle], false)
+    public int ResumeCoroutinesOnInstance(CoroutineHandle handle)
+    {
+        return _handleToIndex.ContainsKey(handle) &&
+               !CoindexIsNull(_handleToIndex[handle]) && SetPause(_handleToIndex[handle], false)
             ? 1
             : 0;
+    }
 
     /// <summary>
     ///     This resumes any matching coroutines on the current MEC instance if they are currently paused, otherwise it has
@@ -1172,14 +1216,17 @@ public class Timing : Node
     /// </summary>
     /// <param name="tag">Any coroutines previously paused with a matching tag will be resumend.</param>
     /// <returns>The number of coroutines that were resumed.</returns>
-    public static int ResumeCoroutines(string tag) => _instance == null ? 0 : _instance.ResumeCoroutinesOnInstance(tag);
+    public static int ResumeCoroutines(string tag)
+    {
+        return _instance == null ? 0 : _instance.ResumeCoroutinesOnInstance(tag);
+    }
 
     /// <summary>
     ///     This resumes any matching coroutines on this MEC instance if they are currently paused, otherwise it has no effect.
     /// </summary>
     /// <param name="tag">Any coroutines previously paused with a matching tag will be resumend.</param>
     /// <returns>The number of coroutines that were resumed.</returns>
-    public int ResumeCoroutinesOnInstance(string? tag)
+    public int ResumeCoroutinesOnInstance(string tag)
     {
         if (tag == null || !_taggedProcesses.ContainsKey(tag))
         {
@@ -1188,7 +1235,7 @@ public class Timing : Node
 
         var count = 0;
 
-        using var indexesEnum = _taggedProcesses[tag].GetEnumerator();
+        var indexesEnum = _taggedProcesses[tag].GetEnumerator();
         while (indexesEnum.MoveNext())
         {
             if (!CoindexIsNull(_handleToIndex[indexesEnum.Current]) &&
@@ -1208,37 +1255,37 @@ public class Timing : Node
             case Segment.Process:
                 if (_currentProcessFrame != Engine.GetProcessFrames())
                 {
-                    DeltaTimeField = GetProcessDeltaTime();
-                    _lastProcessTime += DeltaTimeField;
-                    LocalTime = _lastProcessTime;
+                    deltaTime = GetProcessDeltaTime();
+                    _lastProcessTime += deltaTime;
+                    localTime = _lastProcessTime;
                     _currentProcessFrame = Engine.GetProcessFrames();
 
                     return true;
                 }
 
-                DeltaTimeField = GetProcessDeltaTime();
-                LocalTime = _lastProcessTime;
+                deltaTime = GetProcessDeltaTime();
+                localTime = _lastProcessTime;
 
                 return false;
             case Segment.DeferredProcess:
                 if (_currentDeferredProcessFrame != Engine.GetProcessFrames())
                 {
-                    DeltaTimeField = GetProcessDeltaTime();
-                    _lastDeferredProcessTime += DeltaTimeField;
-                    LocalTime = _lastDeferredProcessTime;
+                    deltaTime = GetProcessDeltaTime();
+                    _lastDeferredProcessTime += deltaTime;
+                    localTime = _lastDeferredProcessTime;
                     _currentDeferredProcessFrame = Engine.GetProcessFrames();
 
                     return true;
                 }
 
-                DeltaTimeField = GetProcessDeltaTime();
-                LocalTime = _lastDeferredProcessTime;
+                deltaTime = GetProcessDeltaTime();
+                localTime = _lastDeferredProcessTime;
 
                 return false;
             case Segment.PhysicsProcess:
-                DeltaTimeField = GetPhysicsProcessDeltaTime();
-                _physicsProcessTime += DeltaTimeField;
-                LocalTime = _physicsProcessTime;
+                deltaTime = GetPhysicsProcessDeltaTime();
+                _physicsProcessTime += deltaTime;
+                localTime = _physicsProcessTime;
 
                 if (_lastPhysicsProcessTime + 0.0001f < _physicsProcessTime)
                 {
@@ -1281,25 +1328,25 @@ public class Timing : Node
     /// <summary>
     ///     Retrieves the MEC manager that corresponds to the supplied instance id.
     /// </summary>
-    /// <param name="id">The instance ID.</param>
+    /// <param name="ID">The instance ID.</param>
     /// <returns>The manager, or null if not found.</returns>
-    public static Timing? GetInstance(byte id)
+    public static Timing GetInstance(byte ID)
     {
-        if (id >= 0x10)
+        if (ID >= 0x10)
         {
             return null;
         }
 
-        return activeInstances[id];
+        return ActiveInstances[ID];
     }
 
     private void AddTag(string tag, CoroutineHandle coindex)
     {
         _processTags.Add(coindex, tag);
 
-        if (_taggedProcesses.TryGetValue(tag, out var process))
+        if (_taggedProcesses.ContainsKey(tag))
         {
-            process.Add(coindex);
+            _taggedProcesses[tag].Add(coindex);
         }
         else
         {
@@ -1329,21 +1376,21 @@ public class Timing : Node
     {
         bool retVal;
 
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                retVal = _processProcesses[coindex.I] != null;
-                _processProcesses[coindex.I] = null;
+                retVal = ProcessProcesses[coindex.i] != null;
+                ProcessProcesses[coindex.i] = null;
 
                 return retVal;
             case Segment.PhysicsProcess:
-                retVal = _physicsProcessProcesses[coindex.I] != null;
-                _physicsProcessProcesses[coindex.I] = null;
+                retVal = PhysicsProcessProcesses[coindex.i] != null;
+                PhysicsProcessProcesses[coindex.i] = null;
 
                 return retVal;
             case Segment.DeferredProcess:
-                retVal = _deferredProcessProcesses[coindex.I] != null;
-                _deferredProcessProcesses[coindex.I] = null;
+                retVal = DeferredProcessProcesses[coindex.i] != null;
+                DeferredProcessProcesses[coindex.i] = null;
 
                 return retVal;
             default:
@@ -1355,21 +1402,21 @@ public class Timing : Node
     {
         IEnumerator<double> retVal;
 
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                retVal = _processProcesses[coindex.I];
-                _processProcesses[coindex.I] = null;
+                retVal = ProcessProcesses[coindex.i];
+                ProcessProcesses[coindex.i] = null;
 
                 return retVal;
             case Segment.PhysicsProcess:
-                retVal = _physicsProcessProcesses[coindex.I];
-                _physicsProcessProcesses[coindex.I] = null;
+                retVal = PhysicsProcessProcesses[coindex.i];
+                PhysicsProcessProcesses[coindex.i] = null;
 
                 return retVal;
             case Segment.DeferredProcess:
-                retVal = _deferredProcessProcesses[coindex.I];
-                _deferredProcessProcesses[coindex.I] = null;
+                retVal = DeferredProcessProcesses[coindex.i];
+                DeferredProcessProcesses[coindex.i] = null;
 
                 return retVal;
             default:
@@ -1379,14 +1426,14 @@ public class Timing : Node
 
     private IEnumerator<double> CoindexPeek(ProcessIndex coindex)
     {
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                return _processProcesses[coindex.I];
+                return ProcessProcesses[coindex.i];
             case Segment.PhysicsProcess:
-                return _physicsProcessProcesses[coindex.I];
+                return PhysicsProcessProcesses[coindex.i];
             case Segment.DeferredProcess:
-                return _deferredProcessProcesses[coindex.I];
+                return DeferredProcessProcesses[coindex.i];
             default:
                 return null;
         }
@@ -1394,14 +1441,14 @@ public class Timing : Node
 
     private bool CoindexIsNull(ProcessIndex coindex)
     {
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                return _processProcesses[coindex.I] == null;
+                return ProcessProcesses[coindex.i] == null;
             case Segment.PhysicsProcess:
-                return _physicsProcessProcesses[coindex.I] == null;
+                return PhysicsProcessProcesses[coindex.i] == null;
             case Segment.DeferredProcess:
-                return _deferredProcessProcesses[coindex.I] == null;
+                return DeferredProcessProcesses[coindex.i] == null;
             default:
                 return true;
         }
@@ -1416,41 +1463,41 @@ public class Timing : Node
 
         bool isPaused;
 
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                isPaused = _processPaused[coindex.I];
-                _processPaused[coindex.I] = newPausedState;
+                isPaused = ProcessPaused[coindex.i];
+                ProcessPaused[coindex.i] = newPausedState;
 
-                if (newPausedState && _processProcesses[coindex.I].Current > GetSegmentTime(coindex.Seg))
+                if (newPausedState && ProcessProcesses[coindex.i].Current > GetSegmentTime(coindex.seg))
                 {
-                    _processProcesses[coindex.I] = _InjectDelay(_processProcesses[coindex.I],
-                                                               _processProcesses[coindex.I].Current -
-                                                               GetSegmentTime(coindex.Seg));
+                    ProcessProcesses[coindex.i] = _InjectDelay(ProcessProcesses[coindex.i],
+                                                               ProcessProcesses[coindex.i].Current -
+                                                               GetSegmentTime(coindex.seg));
                 }
 
                 return isPaused;
             case Segment.PhysicsProcess:
-                isPaused = _physicsProcessPaused[coindex.I];
-                _physicsProcessPaused[coindex.I] = newPausedState;
+                isPaused = PhysicsProcessPaused[coindex.i];
+                PhysicsProcessPaused[coindex.i] = newPausedState;
 
-                if (newPausedState && _physicsProcessProcesses[coindex.I].Current > GetSegmentTime(coindex.Seg))
+                if (newPausedState && PhysicsProcessProcesses[coindex.i].Current > GetSegmentTime(coindex.seg))
                 {
-                    _physicsProcessProcesses[coindex.I] = _InjectDelay(_physicsProcessProcesses[coindex.I],
-                                                                      _physicsProcessProcesses[coindex.I].Current -
-                                                                      GetSegmentTime(coindex.Seg));
+                    PhysicsProcessProcesses[coindex.i] = _InjectDelay(PhysicsProcessProcesses[coindex.i],
+                                                                      PhysicsProcessProcesses[coindex.i].Current -
+                                                                      GetSegmentTime(coindex.seg));
                 }
 
                 return isPaused;
             case Segment.DeferredProcess:
-                isPaused = _deferredProcessPaused[coindex.I];
-                _deferredProcessPaused[coindex.I] = newPausedState;
+                isPaused = DeferredProcessPaused[coindex.i];
+                DeferredProcessPaused[coindex.i] = newPausedState;
 
-                if (newPausedState && _deferredProcessProcesses[coindex.I].Current > GetSegmentTime(coindex.Seg))
+                if (newPausedState && DeferredProcessProcesses[coindex.i].Current > GetSegmentTime(coindex.seg))
                 {
-                    _deferredProcessProcesses[coindex.I] = _InjectDelay(_deferredProcessProcesses[coindex.I],
-                                                                       _deferredProcessProcesses[coindex.I].Current -
-                                                                       GetSegmentTime(coindex.Seg));
+                    DeferredProcessProcesses[coindex.i] = _InjectDelay(DeferredProcessProcesses[coindex.i],
+                                                                       DeferredProcessProcesses[coindex.i].Current -
+                                                                       GetSegmentTime(coindex.seg));
                 }
 
                 return isPaused;
@@ -1468,41 +1515,41 @@ public class Timing : Node
 
         bool isHeld;
 
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                isHeld = _processHeld[coindex.I];
-                _processHeld[coindex.I] = newHeldState;
+                isHeld = ProcessHeld[coindex.i];
+                ProcessHeld[coindex.i] = newHeldState;
 
-                if (newHeldState && _processProcesses[coindex.I].Current > GetSegmentTime(coindex.Seg))
+                if (newHeldState && ProcessProcesses[coindex.i].Current > GetSegmentTime(coindex.seg))
                 {
-                    _processProcesses[coindex.I] = _InjectDelay(_processProcesses[coindex.I],
-                                                               _processProcesses[coindex.I].Current -
-                                                               GetSegmentTime(coindex.Seg));
+                    ProcessProcesses[coindex.i] = _InjectDelay(ProcessProcesses[coindex.i],
+                                                               ProcessProcesses[coindex.i].Current -
+                                                               GetSegmentTime(coindex.seg));
                 }
 
                 return isHeld;
             case Segment.PhysicsProcess:
-                isHeld = _physicsProcessHeld[coindex.I];
-                _physicsProcessHeld[coindex.I] = newHeldState;
+                isHeld = PhysicsProcessHeld[coindex.i];
+                PhysicsProcessHeld[coindex.i] = newHeldState;
 
-                if (newHeldState && _physicsProcessProcesses[coindex.I].Current > GetSegmentTime(coindex.Seg))
+                if (newHeldState && PhysicsProcessProcesses[coindex.i].Current > GetSegmentTime(coindex.seg))
                 {
-                    _physicsProcessProcesses[coindex.I] = _InjectDelay(_physicsProcessProcesses[coindex.I],
-                                                                      _physicsProcessProcesses[coindex.I].Current -
-                                                                      GetSegmentTime(coindex.Seg));
+                    PhysicsProcessProcesses[coindex.i] = _InjectDelay(PhysicsProcessProcesses[coindex.i],
+                                                                      PhysicsProcessProcesses[coindex.i].Current -
+                                                                      GetSegmentTime(coindex.seg));
                 }
 
                 return isHeld;
             case Segment.DeferredProcess:
-                isHeld = _deferredProcessHeld[coindex.I];
-                _deferredProcessHeld[coindex.I] = newHeldState;
+                isHeld = DeferredProcessHeld[coindex.i];
+                DeferredProcessHeld[coindex.i] = newHeldState;
 
-                if (newHeldState && _deferredProcessProcesses[coindex.I].Current > GetSegmentTime(coindex.Seg))
+                if (newHeldState && DeferredProcessProcesses[coindex.i].Current > GetSegmentTime(coindex.seg))
                 {
-                    _deferredProcessProcesses[coindex.I] = _InjectDelay(_deferredProcessProcesses[coindex.I],
-                                                                       _deferredProcessProcesses[coindex.I].Current -
-                                                                       GetSegmentTime(coindex.Seg));
+                    DeferredProcessProcesses[coindex.i] = _InjectDelay(DeferredProcessProcesses[coindex.i],
+                                                                       DeferredProcessProcesses[coindex.i].Current -
+                                                                       GetSegmentTime(coindex.seg));
                 }
 
                 return isHeld;
@@ -1523,14 +1570,14 @@ public class Timing : Node
 
     private bool CoindexIsPaused(ProcessIndex coindex)
     {
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                return _processPaused[coindex.I];
+                return ProcessPaused[coindex.i];
             case Segment.PhysicsProcess:
-                return _physicsProcessPaused[coindex.I];
+                return PhysicsProcessPaused[coindex.i];
             case Segment.DeferredProcess:
-                return _deferredProcessPaused[coindex.I];
+                return DeferredProcessPaused[coindex.i];
             default:
                 return false;
         }
@@ -1538,14 +1585,14 @@ public class Timing : Node
 
     private bool CoindexIsHeld(ProcessIndex coindex)
     {
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                return _processHeld[coindex.I];
+                return ProcessHeld[coindex.i];
             case Segment.PhysicsProcess:
-                return _physicsProcessHeld[coindex.I];
+                return PhysicsProcessHeld[coindex.i];
             case Segment.DeferredProcess:
-                return _deferredProcessHeld[coindex.I];
+                return DeferredProcessHeld[coindex.i];
             default:
                 return false;
         }
@@ -1553,18 +1600,18 @@ public class Timing : Node
 
     private void CoindexReplace(ProcessIndex coindex, IEnumerator<double> replacement)
     {
-        switch (coindex.Seg)
+        switch (coindex.seg)
         {
             case Segment.Process:
-                _processProcesses[coindex.I] = replacement;
+                ProcessProcesses[coindex.i] = replacement;
 
                 return;
             case Segment.PhysicsProcess:
-                _physicsProcessProcesses[coindex.I] = replacement;
+                PhysicsProcessProcesses[coindex.i] = replacement;
 
                 return;
             case Segment.DeferredProcess:
-                _deferredProcessProcesses[coindex.I] = replacement;
+                DeferredProcessProcesses[coindex.i] = replacement;
 
                 return;
         }
@@ -1581,7 +1628,7 @@ public class Timing : Node
             waitTime = 0f;
         }
 
-        return Instance.LocalTime + waitTime;
+        return Instance.localTime + waitTime;
     }
 
     /// <summary>
@@ -1595,7 +1642,7 @@ public class Timing : Node
             waitTime = 0f;
         }
 
-        return LocalTime + waitTime;
+        return localTime + waitTime;
     }
 
     /// <summary>
@@ -1603,7 +1650,10 @@ public class Timing : Node
     ///     coroutine until otherCoroutine is done.
     /// </summary>
     /// <param name="otherCoroutine">The coroutine to pause for.</param>
-    public static double WaitUntilDone(CoroutineHandle otherCoroutine) => WaitUntilDone(otherCoroutine, true);
+    public static double WaitUntilDone(CoroutineHandle otherCoroutine)
+    {
+        return WaitUntilDone(otherCoroutine, true);
+    }
 
     /// <summary>
     ///     Use the command "yield return Timing.WaitUntilDone(otherCoroutine, false);" to pause the current
@@ -1630,7 +1680,7 @@ public class Timing : Node
                 inst._waitingTriggers.Add(otherCoroutine, new HashSet<CoroutineHandle>());
             }
 
-            if (inst.CurrentCoroutine == otherCoroutine)
+            if (inst.currentCoroutine == otherCoroutine)
             {
                 if (warnOnIssue)
                 {
@@ -1640,7 +1690,7 @@ public class Timing : Node
                 return WaitForOneFrame;
             }
 
-            if (!inst.CurrentCoroutine.IsValid)
+            if (!inst.currentCoroutine.IsValid)
             {
                 if (warnOnIssue)
                 {
@@ -1650,11 +1700,14 @@ public class Timing : Node
                 return WaitForOneFrame;
             }
 
-            inst._waitingTriggers[otherCoroutine].Add(inst.CurrentCoroutine);
-            inst._allWaiting.Add(inst.CurrentCoroutine);
+            inst._waitingTriggers[otherCoroutine].Add(inst.currentCoroutine);
+            if (!inst._allWaiting.Contains(inst.currentCoroutine))
+            {
+                inst._allWaiting.Add(inst.currentCoroutine);
+            }
 
-            inst.SetHeld(inst._handleToIndex[inst.CurrentCoroutine], true);
-            inst.SwapToLast(otherCoroutine, inst.CurrentCoroutine);
+            inst.SetHeld(inst._handleToIndex[inst.currentCoroutine], true);
+            inst.SwapToLast(otherCoroutine, inst.currentCoroutine);
 
             return double.NaN;
         }
@@ -1677,7 +1730,7 @@ public class Timing : Node
 
         try
         {
-            if (proc.Current > LocalTime)
+            if (proc.Current > localTime)
             {
                 yield return proc.Current;
             }
@@ -1703,7 +1756,7 @@ public class Timing : Node
         var firstIndex = _handleToIndex[firstHandle];
         var lastIndex = _handleToIndex[lastHandle];
 
-        if (firstIndex.Seg != lastIndex.Seg || firstIndex.I < lastIndex.I)
+        if (firstIndex.seg != lastIndex.seg || firstIndex.i < lastIndex.i)
         {
             return;
         }
@@ -1721,9 +1774,9 @@ public class Timing : Node
         tmpB = SetHeld(firstIndex, CoindexIsHeld(lastIndex));
         SetHeld(lastIndex, tmpB);
 
-        if (_waitingTriggers.TryGetValue(lastHandle, out var trigger))
+        if (_waitingTriggers.ContainsKey(lastHandle))
         {
-            using var trigsEnum = trigger.GetEnumerator();
+            var trigsEnum = _waitingTriggers[lastHandle].GetEnumerator();
             while (trigsEnum.MoveNext())
             {
                 SwapToLast(lastHandle, trigsEnum.Current);
@@ -1732,10 +1785,10 @@ public class Timing : Node
 
         if (_allWaiting.Contains(firstHandle))
         {
-            using var keyEnum = _waitingTriggers.GetEnumerator();
+            var keyEnum = _waitingTriggers.GetEnumerator();
             while (keyEnum.MoveNext())
             {
-                using var valueEnum = keyEnum.Current.Value.GetEnumerator();
+                var valueEnum = keyEnum.Current.Value.GetEnumerator();
                 while (valueEnum.MoveNext())
                 {
                     if (valueEnum.Current == firstHandle)
@@ -1754,7 +1807,7 @@ public class Timing : Node
             return;
         }
 
-        using var tasksEnum = _waitingTriggers[handle].GetEnumerator();
+        var tasksEnum = _waitingTriggers[handle].GetEnumerator();
         _waitingTriggers.Remove(handle);
 
         while (tasksEnum.MoveNext())
@@ -1769,7 +1822,7 @@ public class Timing : Node
 
     private bool HandleIsInWaitingList(CoroutineHandle handle)
     {
-        using var triggersEnum = _waitingTriggers.GetEnumerator();
+        var triggersEnum = _waitingTriggers.GetEnumerator();
         while (triggersEnum.MoveNext())
         {
             if (triggersEnum.Current.Value.Contains(handle))
@@ -1781,8 +1834,10 @@ public class Timing : Node
         return false;
     }
 
-    private static IEnumerator<double> ReturnTmpRefForRepFunc(IEnumerator<double> coptr, CoroutineHandle handle) =>
-        _tmpRef as IEnumerator<double>;
+    private static IEnumerator<double> ReturnTmpRefForRepFunc(IEnumerator<double> coptr, CoroutineHandle handle)
+    {
+        return _tmpRef as IEnumerator<double>;
+    }
 
     /// <summary>
     ///     Keeps this coroutine from executing until UnlockCoroutine is called with a matching key.
@@ -1792,7 +1847,7 @@ public class Timing : Node
     /// <returns>Whether the lock was successful.</returns>
     public bool LockCoroutine(CoroutineHandle coroutine, CoroutineHandle key)
     {
-        if (coroutine.Key != _instanceId || key == new CoroutineHandle() || key.Key != 0)
+        if (coroutine.Key != _instanceID || key == new CoroutineHandle() || key.Key != 0)
         {
             return false;
         }
@@ -1821,7 +1876,7 @@ public class Timing : Node
     /// <returns>Whether the coroutine was successfully unlocked.</returns>
     public bool UnlockCoroutine(CoroutineHandle coroutine, CoroutineHandle key)
     {
-        if (coroutine.Key != _instanceId || key == new CoroutineHandle() ||
+        if (coroutine.Key != _instanceID || key == new CoroutineHandle() ||
             !_handleToIndex.ContainsKey(coroutine) || !_waitingTriggers.ContainsKey(key))
         {
             return false;
@@ -1850,18 +1905,24 @@ public class Timing : Node
     /// </summary>
     /// <param name="action">The action to call.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallDeferred(Action action) =>
-        action == null
+    public static CoroutineHandle CallDeferred(Action action)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._DelayedCall(0, action, null), Segment.DeferredProcess);
+    }
 
     /// <summary>
     ///     Calls the specified action after current process step is completed.
     /// </summary>
     /// <param name="action">The action to call.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallDeferredOnInstance(Action action) =>
-        action == null ? new CoroutineHandle() : RunCoroutine(_DelayedCall(0, action, null), Segment.DeferredProcess);
+    public CoroutineHandle CallDeferredOnInstance(Action action)
+    {
+        return action == null
+            ? new CoroutineHandle()
+            : RunCoroutine(_DelayedCall(0, action, null), Segment.DeferredProcess);
+    }
 
     /// <summary>
     ///     Calls the specified action after a specified number of seconds.
@@ -1869,8 +1930,10 @@ public class Timing : Node
     /// <param name="delay">The number of seconds to wait before calling the action.</param>
     /// <param name="action">The action to call.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallDelayed(double delay, Action action) =>
-        action == null ? new CoroutineHandle() : RunCoroutine(Instance._DelayedCall(delay, action, null));
+    public static CoroutineHandle CallDelayed(double delay, Action action)
+    {
+        return action == null ? new CoroutineHandle() : RunCoroutine(Instance._DelayedCall(delay, action, null));
+    }
 
     /// <summary>
     ///     Calls the specified action after a specified number of seconds.
@@ -1878,8 +1941,10 @@ public class Timing : Node
     /// <param name="delay">The number of seconds to wait before calling the action.</param>
     /// <param name="action">The action to call.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallDelayedOnInstance(double delay, Action action) =>
-        action == null ? new CoroutineHandle() : RunCoroutineOnInstance(_DelayedCall(delay, action, null));
+    public CoroutineHandle CallDelayedOnInstance(double delay, Action action)
+    {
+        return action == null ? new CoroutineHandle() : RunCoroutineOnInstance(_DelayedCall(delay, action, null));
+    }
 
     /// <summary>
     ///     Calls the specified action after a specified number of seconds.
@@ -1888,8 +1953,10 @@ public class Timing : Node
     /// <param name="action">The action to call.</param>
     /// <param name="cancelWith">A Node that will be checked to make sure it hasn't been destroyed before calling the action.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallDelayed(double delay, Action action, Node cancelWith) =>
-        action == null ? new CoroutineHandle() : RunCoroutine(Instance._DelayedCall(delay, action, cancelWith));
+    public static CoroutineHandle CallDelayed(double delay, Action action, Node cancelWith)
+    {
+        return action == null ? new CoroutineHandle() : RunCoroutine(Instance._DelayedCall(delay, action, cancelWith));
+    }
 
     /// <summary>
     ///     Calls the specified action after a specified number of seconds.
@@ -1898,8 +1965,10 @@ public class Timing : Node
     /// <param name="action">The action to call.</param>
     /// <param name="cancelWith">A Node that will be checked to make sure it hasn't been destroyed before calling the action.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallDelayedOnInstance(double delay, Action action, Node cancelWith) =>
-        action == null ? new CoroutineHandle() : RunCoroutineOnInstance(_DelayedCall(delay, action, cancelWith));
+    public CoroutineHandle CallDelayedOnInstance(double delay, Action action, Node cancelWith)
+    {
+        return action == null ? new CoroutineHandle() : RunCoroutineOnInstance(_DelayedCall(delay, action, cancelWith));
+    }
 
     /// <summary>
     ///     Calls the specified action after a specified number of seconds.
@@ -1908,8 +1977,12 @@ public class Timing : Node
     /// <param name="action">The action to call.</param>
     /// <param name="segment">The timing segment that the call should be made in.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallDelayed(double delay, Segment segment, Action action) =>
-        action == null ? new CoroutineHandle() : RunCoroutine(Instance._DelayedCall(delay, action, null), segment);
+    public static CoroutineHandle CallDelayed(double delay, Segment segment, Action action)
+    {
+        return action == null
+            ? new CoroutineHandle()
+            : RunCoroutine(Instance._DelayedCall(delay, action, null), segment);
+    }
 
     /// <summary>
     ///     Calls the specified action after a specified number of seconds.
@@ -1918,8 +1991,12 @@ public class Timing : Node
     /// <param name="action">The action to call.</param>
     /// <param name="segment">The timing segment that the call should be made in.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallDelayedOnInstance(double delay, Segment segment, Action action) =>
-        action == null ? new CoroutineHandle() : RunCoroutineOnInstance(_DelayedCall(delay, action, null), segment);
+    public CoroutineHandle CallDelayedOnInstance(double delay, Segment segment, Action action)
+    {
+        return action == null
+            ? new CoroutineHandle()
+            : RunCoroutineOnInstance(_DelayedCall(delay, action, null), segment);
+    }
 
     /// <summary>
     ///     Calls the specified action after a specified number of seconds.
@@ -1932,8 +2009,12 @@ public class Timing : Node
     /// </param>
     /// <param name="segment">The timing segment that the call should be made in.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallDelayed(double delay, Segment segment, Action action, Node node) =>
-        action == null ? new CoroutineHandle() : RunCoroutine(Instance._DelayedCall(delay, action, node), segment);
+    public static CoroutineHandle CallDelayed(double delay, Segment segment, Action action, Node node)
+    {
+        return action == null
+            ? new CoroutineHandle()
+            : RunCoroutine(Instance._DelayedCall(delay, action, node), segment);
+    }
 
     /// <summary>
     ///     Calls the specified action after a specified number of seconds.
@@ -1946,10 +2027,14 @@ public class Timing : Node
     /// </param>
     /// <param name="segment">The timing segment that the call should be made in.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallDelayedOnInstance(double delay, Segment segment, Action? action, Node node) =>
-        action == null ? new CoroutineHandle() : RunCoroutineOnInstance(_DelayedCall(delay, action, node), segment);
+    public CoroutineHandle CallDelayedOnInstance(double delay, Segment segment, Action action, Node node)
+    {
+        return action == null
+            ? new CoroutineHandle()
+            : RunCoroutineOnInstance(_DelayedCall(delay, action, node), segment);
+    }
 
-    private IEnumerator<double> _DelayedCall(double delay, Action action, Node? cancelWith)
+    private IEnumerator<double> _DelayedCall(double delay, Action action, Node cancelWith)
     {
         yield return WaitForSecondsOnInstance(delay);
 
@@ -1967,11 +2052,12 @@ public class Timing : Node
     /// <param name="action">The action to call every frame.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle
-        CallPeriodically(double timeframe, double period, Action? action, Action? onDone = null) =>
-        action == null
+    public static CoroutineHandle CallPeriodically(double timeframe, double period, Action action, Action onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._CallContinuously(timeframe, period, action, onDone), Segment.Process);
+    }
 
     /// <summary>
     ///     Calls the supplied action at the given rate for a given number of seconds.
@@ -1981,11 +2067,13 @@ public class Timing : Node
     /// <param name="action">The action to call every frame.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle
-        CallPeriodicallyOnInstance(double timeframe, double period, Action? action, Action? onDone = null) =>
-        action == null
+    public CoroutineHandle CallPeriodicallyOnInstance(double timeframe, double period, Action action,
+                                                      Action onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutineOnInstance(_CallContinuously(timeframe, period, action, onDone), Segment.Process);
+    }
 
     /// <summary>
     ///     Calls the supplied action at the given rate for a given number of seconds.
@@ -1996,11 +2084,13 @@ public class Timing : Node
     /// <param name="segment">The timing segment to run in.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallPeriodically(double timeframe, double period, Action? action, Segment segment,
-                                                   Action? onDone = null) =>
-        action == null
+    public static CoroutineHandle CallPeriodically(double timeframe, double period, Action action, Segment segment,
+                                                   Action onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._CallContinuously(timeframe, period, action, onDone), segment);
+    }
 
     /// <summary>
     ///     Calls the supplied action at the given rate for a given number of seconds.
@@ -2011,11 +2101,13 @@ public class Timing : Node
     /// <param name="segment">The timing segment to run in.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallPeriodicallyOnInstance(double timeframe, double period, Action? action, Segment segment,
-                                                      Action? onDone = null) =>
-        action == null
+    public CoroutineHandle CallPeriodicallyOnInstance(double timeframe, double period, Action action, Segment segment,
+                                                      Action onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutineOnInstance(_CallContinuously(timeframe, period, action, onDone), segment);
+    }
 
     /// <summary>
     ///     Calls the supplied action at the given rate for a given number of seconds.
@@ -2024,10 +2116,12 @@ public class Timing : Node
     /// <param name="action">The action to call every frame.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallContinuously(double timeframe, Action? action, Action? onDone = null) =>
-        action == null
+    public static CoroutineHandle CallContinuously(double timeframe, Action action, Action onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._CallContinuously(timeframe, 0f, action, onDone), Segment.Process);
+    }
 
     /// <summary>
     ///     Calls the supplied action at the given rate for a given number of seconds.
@@ -2036,10 +2130,12 @@ public class Timing : Node
     /// <param name="action">The action to call every frame.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallContinuouslyOnInstance(double timeframe, Action? action, Action? onDone = null) =>
-        action == null
+    public CoroutineHandle CallContinuouslyOnInstance(double timeframe, Action action, Action onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutineOnInstance(_CallContinuously(timeframe, 0f, action, onDone), Segment.Process);
+    }
 
     /// <summary>
     ///     Calls the supplied action every frame for a given number of seconds.
@@ -2049,11 +2145,13 @@ public class Timing : Node
     /// <param name="timing">The timing segment to run in.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle
-        CallContinuously(double timeframe, Action? action, Segment timing, Action? onDone = null) =>
-        action == null
+    public static CoroutineHandle CallContinuously(double timeframe, Action action, Segment timing,
+                                                   Action onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._CallContinuously(timeframe, 0f, action, onDone), timing);
+    }
 
     /// <summary>
     ///     Calls the supplied action every frame for a given number of seconds.
@@ -2063,23 +2161,28 @@ public class Timing : Node
     /// <param name="timing">The timing segment to run in.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle
-        CallContinuouslyOnInstance(double timeframe, Action? action, Segment timing, Action? onDone = null) =>
-        action == null
+    public CoroutineHandle CallContinuouslyOnInstance(double timeframe, Action action, Segment timing,
+                                                      Action onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutineOnInstance(_CallContinuously(timeframe, 0f, action, onDone), timing);
+    }
 
-    private IEnumerator<double> _CallContinuously(double timeframe, double period, Action action, Action? onDone)
+    private IEnumerator<double> _CallContinuously(double timeframe, double period, Action action, Action onDone)
     {
-        var startTime = LocalTime;
-        while (LocalTime <= startTime + timeframe)
+        var startTime = localTime;
+        while (localTime <= startTime + timeframe)
         {
             yield return WaitForSecondsOnInstance(period);
 
             action();
         }
 
-        onDone?.Invoke();
+        if (onDone != null)
+        {
+            onDone();
+        }
     }
 
     /// <summary>
@@ -2092,10 +2195,12 @@ public class Timing : Node
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
     public static CoroutineHandle CallPeriodically<T>
-        (T reference, double timeframe, double period, Action<T>? action, Action<T>? onDone = null) =>
-        action == null
+        (T reference, double timeframe, double period, Action<T> action, Action<T> onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._CallContinuously(reference, timeframe, period, action, onDone), Segment.Process);
+    }
 
     /// <summary>
     ///     Calls the supplied action at the given rate for a given number of seconds.
@@ -2107,10 +2212,12 @@ public class Timing : Node
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
     public CoroutineHandle CallPeriodicallyOnInstance<T>
-        (T reference, double timeframe, double period, Action<T>? action, Action<T>? onDone = null) =>
-        action == null
+        (T reference, double timeframe, double period, Action<T> action, Action<T> onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutineOnInstance(_CallContinuously(reference, timeframe, period, action, onDone), Segment.Process);
+    }
 
     /// <summary>
     ///     Calls the supplied action at the given rate for a given number of seconds.
@@ -2122,11 +2229,13 @@ public class Timing : Node
     /// <param name="timing">The timing segment to run in.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallPeriodically<T>(T reference, double timeframe, double period, Action<T>? action,
-                                                      Segment timing, Action<T>? onDone = null) =>
-        action == null
+    public static CoroutineHandle CallPeriodically<T>(T reference, double timeframe, double period, Action<T> action,
+                                                      Segment timing, Action<T> onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._CallContinuously(reference, timeframe, period, action, onDone), timing);
+    }
 
     /// <summary>
     ///     Calls the supplied action at the given rate for a given number of seconds.
@@ -2138,11 +2247,13 @@ public class Timing : Node
     /// <param name="timing">The timing segment to run in.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallPeriodicallyOnInstance<T>(T reference, double timeframe, double period, Action<T>? action,
-                                                         Segment timing, Action<T>? onDone = null) =>
-        action == null
+    public CoroutineHandle CallPeriodicallyOnInstance<T>(T reference, double timeframe, double period, Action<T> action,
+                                                         Segment timing, Action<T> onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutineOnInstance(_CallContinuously(reference, timeframe, period, action, onDone), timing);
+    }
 
     /// <summary>
     ///     Calls the supplied action every frame for a given number of seconds.
@@ -2152,11 +2263,13 @@ public class Timing : Node
     /// <param name="action">The action to call every frame.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle
-        CallContinuously<T>(T reference, double timeframe, Action<T>? action, Action<T>? onDone = null) =>
-        action == null
+    public static CoroutineHandle CallContinuously<T>(T reference, double timeframe, Action<T> action,
+                                                      Action<T> onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._CallContinuously(reference, timeframe, 0f, action, onDone), Segment.Process);
+    }
 
     /// <summary>
     ///     Calls the supplied action every frame for a given number of seconds.
@@ -2166,11 +2279,13 @@ public class Timing : Node
     /// <param name="action">The action to call every frame.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle
-        CallContinuouslyOnInstance<T>(T reference, double timeframe, Action<T>? action, Action<T>? onDone = null) =>
-        action == null
+    public CoroutineHandle CallContinuouslyOnInstance<T>(T reference, double timeframe, Action<T> action,
+                                                         Action<T> onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutineOnInstance(_CallContinuously(reference, timeframe, 0f, action, onDone), Segment.Process);
+    }
 
     /// <summary>
     ///     Calls the supplied action every frame for a given number of seconds.
@@ -2181,11 +2296,13 @@ public class Timing : Node
     /// <param name="timing">The timing segment to run in.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public static CoroutineHandle CallContinuously<T>(T reference, double timeframe, Action<T>? action,
-                                                      Segment timing, Action<T>? onDone = null) =>
-        action == null
+    public static CoroutineHandle CallContinuously<T>(T reference, double timeframe, Action<T> action,
+                                                      Segment timing, Action<T> onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutine(Instance._CallContinuously(reference, timeframe, 0f, action, onDone), timing);
+    }
 
     /// <summary>
     ///     Calls the supplied action every frame for a given number of seconds.
@@ -2196,47 +2313,64 @@ public class Timing : Node
     /// <param name="timing">The timing segment to run in.</param>
     /// <param name="onDone">An optional action to call when this function finishes.</param>
     /// <returns>The handle to the coroutine that is started by this function.</returns>
-    public CoroutineHandle CallContinuouslyOnInstance<T>(T reference, double timeframe, Action<T>? action,
-                                                         Segment timing, Action<T>? onDone = null) =>
-        action == null
+    public CoroutineHandle CallContinuouslyOnInstance<T>(T reference, double timeframe, Action<T> action,
+                                                         Segment timing, Action<T> onDone = null)
+    {
+        return action == null
             ? new CoroutineHandle()
             : RunCoroutineOnInstance(_CallContinuously(reference, timeframe, 0f, action, onDone), timing);
+    }
 
     private IEnumerator<double> _CallContinuously<T>(T reference, double timeframe, double period,
-                                                     Action<T> action, Action<T>? onDone = null)
+                                                     Action<T> action, Action<T> onDone = null)
     {
-        var startTime = LocalTime;
-        while (LocalTime <= startTime + timeframe)
+        var startTime = localTime;
+        while (localTime <= startTime + timeframe)
         {
             yield return WaitForSecondsOnInstance(period);
 
             action(reference);
         }
 
-        onDone?.Invoke(reference);
+        if (onDone != null)
+        {
+            onDone(reference);
+        }
     }
 
     private struct ProcessIndex : IEquatable<ProcessIndex>
     {
-        public Segment Seg;
-        public int I;
+        public Segment seg;
+        public int i;
 
-        public bool Equals(ProcessIndex other) => Seg == other.Seg && I == other.I;
-
-        public override bool Equals(object? other)
+        public bool Equals(ProcessIndex other)
         {
-            if (other is ProcessIndex index)
+            return seg == other.seg && i == other.i;
+        }
+
+        public override bool Equals(object other)
+        {
+            if (other is ProcessIndex)
             {
-                return Equals(index);
+                return Equals((ProcessIndex) other);
             }
 
             return false;
         }
 
-        public static bool operator ==(ProcessIndex a, ProcessIndex b) => a.Seg == b.Seg && a.I == b.I;
+        public static bool operator ==(ProcessIndex a, ProcessIndex b)
+        {
+            return a.seg == b.seg && a.i == b.i;
+        }
 
-        public static bool operator !=(ProcessIndex a, ProcessIndex b) => a.Seg != b.Seg || a.I != b.I;
+        public static bool operator !=(ProcessIndex a, ProcessIndex b)
+        {
+            return a.seg != b.seg || a.i != b.i;
+        }
 
-        public override int GetHashCode() => ((int) Seg - 2) * (int.MaxValue / 3) + I;
+        public override int GetHashCode()
+        {
+            return ((int) seg - 2) * (int.MaxValue / 3) + i;
+        }
     }
 }
