@@ -1,0 +1,19 @@
+= LeoGodotTools -- Timing
+
+Provides Coroutine like behaviour.
+There are still a couple of issues and warnings that need to be addressed.
+
+== Original Source
+
+Originally created and published under the MIT license by WeaverDev.
+https://github.com/WeaverDev/More-Effective-Godot-Coroutines/
+
+=== Original License
+
+Ported from More Effective Coroutines (Free) v3.10.2 by WeaverDev
+https://assetstore.unity.com/packages/tools/animation/more-effective-coroutines-free-54975
+Published with permission under the MIT license
+
+Originally Created by Teal Rogers
+Trinary Software
+http://trinary.tech/

@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LeoGodotTools", "LeoGodotTools\LeoGodotTools.csproj", "{1381D6A2-928D-41D1-8E83-77D05F2A7FDF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1381D6A2-928D-41D1-8E83-77D05F2A7FDF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1381D6A2-928D-41D1-8E83-77D05F2A7FDF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1381D6A2-928D-41D1-8E83-77D05F2A7FDF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1381D6A2-928D-41D1-8E83-77D05F2A7FDF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
